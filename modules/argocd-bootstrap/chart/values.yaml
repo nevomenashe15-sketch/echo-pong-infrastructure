@@ -1,0 +1,7 @@
+# All values are supplied by Terraform. The defaults below exist only so
+# `helm template` works standalone for review.
+namePrefix: echo-pong
+argocdNamespace: argocd
+repoURL: ""
+targetRevision: main
+path: bootstrap

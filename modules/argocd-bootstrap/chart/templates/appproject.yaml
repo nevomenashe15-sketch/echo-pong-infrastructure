@@ -1,0 +1,55 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: {{ .Values.namePrefix }}
+  namespace: {{ .Values.argocdNamespace }}
+  annotations:
+    echo-pong.io/owner: "terraform:modules/argocd-bootstrap"
+spec:
+  description: >-
+    Project for every echo-pong workload and platform add-on. Created once by
+    Terraform; all Applications inside it are created by Argo CD from
+    echo-pong-gitops.
+
+  # Only this one repository. An Application in this project cannot be pointed
+  # at an arbitrary Git URL, so a compromised Argo CD API call cannot make the
+  # cluster sync attacker-controlled manifests.
+  sourceRepos:
+    - {{ .Values.repoURL | quote }}
+
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: "*"
+
+  # The add-ons this project installs (Karpenter, ESO, the LB controller) are
+  # all cluster-scoped operators with CRDs, so cluster-scoped resources cannot
+  # be blanket-denied. They are enumerated instead of wildcarded.
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+    - group: storage.k8s.io
+      kind: StorageClass
+    - group: karpenter.sh
+      kind: NodePool
+    - group: karpenter.k8s.aws
+      kind: EC2NodeClass
+    - group: scheduling.k8s.io
+      kind: PriorityClass
+
+  namespaceResourceBlacklist:
+    # Nothing in this project has any business creating AWS-credential-bearing
+    # objects or rewriting resource quotas.
+    - group: ""
+      kind: ResourceQuota
+    - group: ""
+      kind: LimitRange

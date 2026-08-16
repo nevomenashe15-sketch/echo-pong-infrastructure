@@ -1,0 +1,44 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ .Values.namePrefix }}-root
+  namespace: {{ .Values.argocdNamespace }}
+  annotations:
+    echo-pong.io/owner: "terraform:modules/argocd-bootstrap"
+    echo-pong.io/handoff: >-
+      This is the ONLY Application Terraform creates. Every other Application in
+      this cluster is created by Argo CD from echo-pong-gitops.
+  # NO finalizers. Deliberate -- see the deletion discussion in
+  # modules/argocd-bootstrap/main.tf. Adding
+  # resources-finalizer.argocd.argoproj.io here would make deleting this object
+  # cascade-delete every workload in the cluster.
+spec:
+  project: {{ .Values.namePrefix }}
+
+  source:
+    repoURL: {{ .Values.repoURL | quote }}
+    targetRevision: {{ .Values.targetRevision | quote }}
+    path: {{ .Values.path | quote }}
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.argocdNamespace }}
+
+  syncPolicy:
+    automated:
+      # prune applies to the CHILD Applications this root manages: an
+      # Application removed from Git is removed from the cluster. It does not
+      # affect this object's own lifecycle.
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      # Argo CD applies the server-side apply path, so it can adopt the
+      # add-ons without fighting their own controllers over managed fields.
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m

@@ -1,0 +1,9 @@
+apiVersion: v2
+name: echo-pong-bootstrap
+description: >-
+  The single Argo CD AppProject + root Application that hands control of the
+  cluster over to echo-pong-gitops. Vendored deliberately -- see
+  modules/argocd-bootstrap/main.tf.
+type: application
+version: 1.0.0
+appVersion: "1.0.0"

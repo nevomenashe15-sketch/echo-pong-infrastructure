@@ -1,0 +1,38 @@
+# cp terraform.tfvars.example terraform.tfvars and fill in.
+# NEVER put the app's API token or the origin verification value in this file.
+
+aws_region = "eu-central-1"
+azs        = ["eu-central-1a", "eu-central-1b", "eu-central-1c"]
+
+# Restrict to real egress ranges. 0.0.0.0/0 is rejected by validation.
+cluster_public_access_cidrs = [
+  # "203.0.113.0/24",  # office
+  # "198.51.100.7/32", # CI runner NAT
+]
+
+route53_zone_id = "Z0123456789ABCDEFGHIJ" # EXISTING zone -- never created here
+domain_name     = "echo-pong.example.com"
+
+cloudfront_log_bucket_name = "echo-pong-prod-cf-logs-123456789012"
+
+# envs/prod owns the account-global singletons. These three ARNs come from the
+# bootstrap layer's outputs and scope the tf-plan / tf-apply role policies.
+manage_account_globals = true
+state_bucket_arn       = "arn:aws:s3:::echo-pong-tfstate-123456789012"
+state_lock_table_arn   = "arn:aws:dynamodb:eu-central-1:123456789012:table/echo-pong-tf-locks"
+state_kms_key_arn      = "arn:aws:kms:eu-central-1:123456789012:key/00000000-0000-0000-0000-000000000000"
+
+# Strongly recommended: pin the ECR release role to one reusable workflow.
+# release_job_workflow_ref = "nevomenashe15-sketch/echo-pong-workflows/.github/workflows/release.yml@refs/heads/main"
+
+# After envs/dev has been applied once, add its node role ARNs here so the dev
+# cluster can pull the promoted production image.
+ecr_pull_principal_arns = [
+  # "arn:aws:iam::123456789012:role/echo-pong-dev-system-node",
+  # "arn:aws:iam::123456789012:role/echo-pong-dev-karpenter-node",
+]
+
+# First apply of a brand-new cluster must set this to false; see README.md.
+enable_argocd = true
+
+tags = {}

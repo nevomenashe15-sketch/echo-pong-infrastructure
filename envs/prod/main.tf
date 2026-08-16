@@ -1,0 +1,317 @@
+# =============================================================================
+# echo-pong -- envs/prod
+# =============================================================================
+# One of THREE root modules in this repository: bootstrap/, envs/dev/,
+# envs/prod/. Each has its own state key and its own apply. See
+# docs/architecture.md for why separate root directories were chosen over
+# Terraform workspaces.
+# =============================================================================
+
+provider "aws" {
+  region = var.aws_region
+
+  default_tags {
+    tags = local.common_tags
+  }
+}
+
+# us-east-1 alias. Required by AWS -- not a preference -- for:
+#   - the ACM certificate CloudFront presents to viewers,
+#   - the CLOUDFRONT-scoped WAFv2 Web ACL,
+#   - the CloudFront standard-logging-v2 delivery resources.
+# Every other resource in this stack lives in var.aws_region.
+provider "aws" {
+  alias  = "useast1"
+  region = "us-east-1"
+
+  default_tags {
+    tags = local.common_tags
+  }
+}
+
+# Authenticates to the cluster Terraform just created, via the same AWS
+# credentials Terraform is already using. No kubeconfig file, no static token.
+# The principal running apply MUST be in cluster_admin_principal_arns below or
+# this fails with an opaque RBAC error.
+provider "helm" {
+  kubernetes {
+    host                   = module.eks.cluster_endpoint
+    cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
+
+    exec {
+      api_version = "client.authentication.k8s.io/v1beta1"
+      command     = "aws"
+      args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name, "--region", var.aws_region]
+    }
+  }
+}
+
+data "aws_caller_identity" "current" {}
+
+locals {
+  name_prefix = "echo-pong-${var.environment}"
+
+  # Same shape as the sibling echo-ai-pipeline-infra repo's common_tags local,
+  # so tagging is uniform across the estate.
+  common_tags = merge({
+    Environment = var.environment
+    ManagedBy   = "terraform"
+    Project     = "echo-pong"
+  }, var.tags)
+
+  account_id = data.aws_caller_identity.current.account_id
+}
+
+# -----------------------------------------------------------------------------
+# KMS
+# -----------------------------------------------------------------------------
+# Separate keys per purpose. A single key would mean one key policy edit, or
+# one accidental deletion schedule, taking out unrelated systems -- and it
+# would make CloudTrail decrypt events impossible to attribute.
+module "kms_eks" {
+  source = "../../modules/kms"
+
+  alias       = "${local.name_prefix}-eks"
+  description = "Envelope encryption for Kubernetes Secrets in ${local.name_prefix}, plus its control-plane and flow log groups"
+
+  # CloudWatch Logs encrypts log groups with the key directly rather than
+  # assuming a role, so it needs a service-principal grant in the key policy.
+  service_principals = ["logs.${var.aws_region}.amazonaws.com"]
+
+  tags = local.common_tags
+}
+
+module "kms_secrets" {
+  source = "../../modules/kms"
+
+  alias       = "${local.name_prefix}-secrets"
+  description = "Encrypts Secrets Manager secrets for ${local.name_prefix}"
+
+  tags = local.common_tags
+}
+
+# ECR is account-global, so its key is created only by the environment that
+# owns the registry.
+module "kms_ecr" {
+  count  = var.manage_account_globals ? 1 : 0
+  source = "../../modules/kms"
+
+  alias       = "echo-pong-ecr"
+  description = "Encrypts image layers at rest in the echo-pong ECR repositories"
+
+  tags = local.common_tags
+}
+
+# -----------------------------------------------------------------------------
+# Network
+# -----------------------------------------------------------------------------
+module "vpc" {
+  source = "../../modules/vpc"
+
+  name_prefix  = local.name_prefix
+  cluster_name = local.name_prefix
+  vpc_cidr     = var.vpc_cidr
+  azs          = var.azs
+
+  # prod: ONE NAT GATEWAY PER AZ. An AZ failure must not remove egress from the surviving AZs, and cross-AZ NAT traffic is both a charge and a latency hop.
+  single_nat_gateway = false
+
+  # prod: ALL traffic at 90-day retention. The flow log is the only record of what talked to what during an incident, and 90 days covers a realistic detection-to-investigation gap.
+  enable_flow_logs        = true
+  flow_log_traffic_type   = "ALL"
+  flow_log_retention_days = 90
+
+  kms_key_arn = module.kms_eks.key_arn
+
+  tags = local.common_tags
+}
+
+# -----------------------------------------------------------------------------
+# EKS
+# -----------------------------------------------------------------------------
+module "eks" {
+  source = "../../modules/eks"
+
+  cluster_name       = local.name_prefix
+  kubernetes_version = var.kubernetes_version
+
+  vpc_id             = module.vpc.vpc_id
+  private_subnet_ids = module.vpc.private_subnet_ids
+
+  enable_public_access = true
+  public_access_cidrs  = var.cluster_public_access_cidrs
+
+  kms_key_arn                      = module.kms_eks.key_arn
+  control_plane_log_retention_days = 90
+
+  system_node_group = {
+    instance_types = ["m7g.large"]
+    desired_size   = 3
+    min_size       = 2
+    max_size       = 6
+    disk_size_gb   = 50
+    capacity_type  = "ON_DEMAND"
+  }
+
+  # The apply role must be a cluster admin or Terraform cannot install Argo CD.
+  # bootstrap_cluster_creator_admin_permissions is off in the module, so this
+  # list is the ONLY path to cluster-admin and it is reviewable in Git.
+  cluster_admin_principal_arns = compact([
+    var.manage_account_globals ? module.iam_github_oidc[0].tf_apply_role_arn : "",
+  ])
+
+  tags = local.common_tags
+}
+
+# -----------------------------------------------------------------------------
+# Secrets Manager -- METADATA ONLY, never a value
+# -----------------------------------------------------------------------------
+module "app_secret" {
+  source = "../../modules/secrets-metadata"
+
+  secret_name = "echo-pong/${var.environment}/api-token"
+  kms_key_arn = module.kms_secrets.key_arn
+
+  reader_role_arns = [module.pod_identity.external_secrets_role_arn]
+
+  tags = local.common_tags
+}
+
+# -----------------------------------------------------------------------------
+# Pod Identity roles for the three platform controllers
+# -----------------------------------------------------------------------------
+module "pod_identity" {
+  source = "../../modules/iam-pod-identity"
+
+  name_prefix  = local.name_prefix
+  cluster_name = module.eks.cluster_name
+  cluster_arn  = module.eks.cluster_arn
+
+  karpenter_node_role_arn = module.eks.karpenter_node_role_arn
+
+  # Scoped to the exact secret ARNs ESO may read. Deliberately not a prefix
+  # wildcard -- see modules/iam-pod-identity/external-secrets.tf.
+  secret_arns = [
+    "arn:aws:secretsmanager:${var.aws_region}:${local.account_id}:secret:echo-pong/${var.environment}/api-token-*",
+  ]
+  secret_kms_key_arn = module.kms_secrets.key_arn
+
+  tags = local.common_tags
+}
+
+# -----------------------------------------------------------------------------
+# TLS + DNS
+# -----------------------------------------------------------------------------
+module "route53_acm" {
+  source = "../../modules/route53-acm"
+
+  providers = {
+    aws         = aws
+    aws.useast1 = aws.useast1
+  }
+
+  route53_zone_id = var.route53_zone_id
+  domain_name     = var.domain_name
+
+  tags = local.common_tags
+}
+
+# -----------------------------------------------------------------------------
+# Edge: CloudFront + both Web ACLs
+# -----------------------------------------------------------------------------
+module "cloudfront_waf" {
+  source = "../../modules/cloudfront-waf"
+
+  providers = {
+    aws         = aws
+    aws.useast1 = aws.useast1
+  }
+
+  name_prefix = local.name_prefix
+  domain_name = var.domain_name
+  origin_fqdn = module.route53_acm.origin_fqdn
+
+  viewer_certificate_arn = module.route53_acm.viewer_certificate_arn
+
+  price_class = "PriceClass_100"
+
+  rate_limit_per_5min      = var.waf_rate_limit_per_5min
+  waf_rule_action_override = var.waf_rule_action_override
+
+  log_bucket_name    = var.cloudfront_log_bucket_name
+  log_retention_days = 90
+
+  secret_kms_key_arn = module.kms_secrets.key_arn
+  origin_secret_name = "echo-pong/${var.environment}/cloudfront-origin-verify"
+
+  tags = local.common_tags
+}
+
+# -----------------------------------------------------------------------------
+# Account-global singletons -- created by exactly ONE environment
+# -----------------------------------------------------------------------------
+module "ecr" {
+  count  = var.manage_account_globals ? 1 : 0
+  source = "../../modules/ecr"
+
+  kms_key_arn = module.kms_ecr[0].key_arn
+
+  push_principal_arns = [module.iam_github_oidc[0].ecr_release_role_arn]
+
+  pull_principal_arns = concat(
+    [module.eks.system_node_role_arn, module.eks.karpenter_node_role_arn],
+    var.ecr_pull_principal_arns,
+  )
+
+  read_only_principal_arns = [module.iam_github_oidc[0].ci_validation_role_arn]
+
+  tags = local.common_tags
+}
+
+module "iam_github_oidc" {
+  count  = var.manage_account_globals ? 1 : 0
+  source = "../../modules/iam-github-oidc"
+
+  github_owner = var.github_owner
+
+  state_bucket_arn     = var.state_bucket_arn
+  state_lock_table_arn = var.state_lock_table_arn
+  state_kms_key_arn    = var.state_kms_key_arn
+
+  release_job_workflow_ref = var.release_job_workflow_ref
+
+  # Both repository ARNs, constructed rather than taken from module.ecr, to
+  # avoid a cycle: module.ecr needs this module's role ARNs for its repository
+  # policy, so this module cannot depend on module.ecr's outputs.
+  ecr_repository_arns = [
+    "arn:aws:ecr:${var.aws_region}:${local.account_id}:repository/echo-pong",
+    "arn:aws:ecr:${var.aws_region}:${local.account_id}:repository/echo-pong-quarantine",
+  ]
+
+  tags = local.common_tags
+}
+
+# -----------------------------------------------------------------------------
+# Argo CD -- the ONE Terraform -> Kubernetes exception
+# -----------------------------------------------------------------------------
+# After this, Terraform never touches a Kubernetes object again. The AWS Load
+# Balancer Controller, External Secrets Operator, Karpenter, the Karpenter
+# NodePool/EC2NodeClass and the echo-pong Helm release are all installed by
+# Argo CD from echo-pong-gitops.
+module "argocd" {
+  count  = var.enable_argocd ? 1 : 0
+  source = "../../modules/argocd-bootstrap"
+
+  name_prefix = local.name_prefix
+
+  argocd_chart_version = var.argocd_chart_version
+  high_availability    = true
+
+  gitops_repo_url  = var.gitops_repo_url
+  gitops_root_path = var.gitops_root_path
+
+  depends_on = [
+    module.eks,
+    module.pod_identity,
+  ]
+}

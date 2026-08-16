@@ -1,0 +1,24 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfvars
+!*.tfvars.example
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+tfplan
+*.tfplan
+
+# Lock files ARE committed on purpose -- see README "Lock files".
+!.terraform.lock.hcl
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/

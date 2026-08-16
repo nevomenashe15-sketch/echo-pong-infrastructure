@@ -1,0 +1,26 @@
+# cp terraform.tfvars.example terraform.tfvars and fill in.
+# NEVER put the app's API token or the origin verification value in this file.
+
+aws_region = "eu-central-1"
+azs        = ["eu-central-1a", "eu-central-1b"]
+
+# Restrict to real egress ranges. 0.0.0.0/0 is rejected by validation.
+cluster_public_access_cidrs = [
+  # "203.0.113.0/24",  # office
+  # "198.51.100.7/32", # CI runner NAT
+]
+
+route53_zone_id = "Z0123456789ABCDEFGHIJ" # EXISTING zone -- never created here
+domain_name     = "dev.echo-pong.example.com"
+
+cloudfront_log_bucket_name = "echo-pong-dev-cf-logs-123456789012"
+
+# envs/dev does NOT own the account-global singletons (the GitHub OIDC provider,
+# the five echo-pong-gh-* roles, the two ECR repositories). envs/prod does.
+# Apply order is: bootstrap -> envs/prod -> envs/dev.
+manage_account_globals = false
+
+# First apply of a brand-new cluster must set this to false; see README.md.
+enable_argocd = true
+
+tags = {}
