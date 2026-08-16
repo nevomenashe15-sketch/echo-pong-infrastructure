@@ -1,0 +1,58 @@
+# =============================================================================
+# Trivy misconfiguration ignores
+# =============================================================================
+# Run with:  trivy config --skip-dirs '**/.terraform' .
+#
+# Same rule as .checkov.yml: every entry is a DECISION with a written
+# justification in docs/future-extensions.md under "Scanner findings
+# deliberately left open". Add the justification in the same commit.
+# =============================================================================
+
+# AWS-0040 (CRITICAL) -- EKS cluster public access enabled.
+# Enabled but CIDR-restricted; modules/eks REJECTS 0.0.0.0/0 via variable
+# validation, and endpoint_private_access is always on. Disabling it means
+# GitHub-hosted runners cannot reach the Kubernetes API and break-glass access
+# needs a bastion or VPN. docs/future-extensions.md.
+AWS-0040
+
+# AWS-0104 (CRITICAL) -- unrestricted egress to 0.0.0.0/0.
+# Node and control-plane security groups. Nodes need egress for image pulls,
+# the EKS API, add-on registries and any outbound the app makes. They sit in
+# private subnets behind a NAT Gateway with NO inbound path, and IMDS is
+# unreachable from pods (hop limit 1). Pinning egress CIDRs for AWS service
+# endpoints is not maintainable.
+AWS-0104
+
+# AWS-0010 (MEDIUM) -- CloudFront access logging not configured.
+# False positive. Logging uses standard logging v2 via
+# aws_cloudwatch_log_delivery{,_source,_destination}, which trivy does not
+# recognise. The legacy logging_config block is deliberately unused because it
+# requires bucket ACLs. See modules/cloudfront-waf/logging.tf.
+AWS-0010
+
+# AWS-0017 (LOW) -- CloudWatch log groups not encrypted with a CMK.
+# The WAF log groups. Encrypting them requires granting
+# logs.<region>.amazonaws.com use of a CMK that also protects the app token --
+# widening a key well beyond what the log content warrants. Both sensitive
+# headers (authorization, x-echo-pong-origin-verify) are redacted in the
+# logging configuration. See modules/cloudfront-waf/waf-logging.tf.
+AWS-0017
+
+# AWS-0132 (HIGH) -- S3 encryption should use a CMK.
+# The CloudFront access-log bucket and the state ACCESS-LOG bucket use SSE-S3.
+# S3 server access logging cannot write to a CMK-encrypted bucket unless the
+# delivery principal holds kms:GenerateDataKey, a grant broader than the log
+# data warrants. The STATE bucket itself DOES use a CMK (bootstrap/main.tf).
+AWS-0132
+
+# AWS-0089 (LOW) -- S3 bucket logging not enabled.
+# The log buckets themselves. Logging a log bucket produces a recursive stream
+# with no incident value. The state bucket, which is the sensitive one, has
+# access logging to a separate bucket.
+AWS-0089
+
+# AWS-0342 (MEDIUM) -- IAM policy allows iam:PassRole.
+# echo-pong-gh-tf-apply. Deliberate and conditioned: iam:PassedToService must
+# be one of eks, ec2, pods.eks, vpc-flow-logs, delivery.logs. Terraform cannot
+# create an EKS cluster or a node group without it.
+AWS-0342

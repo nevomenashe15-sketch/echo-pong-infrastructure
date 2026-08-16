@@ -156,9 +156,19 @@ module "eks" {
   # The apply role must be a cluster admin or Terraform cannot install Argo CD.
   # bootstrap_cluster_creator_admin_permissions is off in the module, so this
   # list is the ONLY path to cluster-admin and it is reviewable in Git.
-  cluster_admin_principal_arns = compact([
-    var.manage_account_globals ? module.iam_github_oidc[0].tf_apply_role_arn : "",
-  ])
+  #
+  # The tf-apply role only exists in the environment that owns the account
+  # globals, so in THIS root module that first element is empty and
+  # var.extra_cluster_admin_principal_arns is the only source of admins.
+  # It MUST be non-empty, or the cluster has no administrator at all: the helm
+  # provider fails to install Argo CD and no human can get kubectl access
+  # either. See docs/architecture.md "Cluster admin bootstrap".
+  cluster_admin_principal_arns = concat(
+    compact([
+      var.manage_account_globals ? module.iam_github_oidc[0].tf_apply_role_arn : "",
+    ]),
+    var.extra_cluster_admin_principal_arns,
+  )
 
   tags = local.common_tags
 }

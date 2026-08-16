@@ -43,6 +43,25 @@ variable "cluster_public_access_cidrs" {
   type        = list(string)
 }
 
+variable "extra_cluster_admin_principal_arns" {
+  description = <<-EOT
+    IAM principal ARNs granted cluster-admin on this cluster via EKS access
+    entries, IN ADDITION to the terraform-apply role.
+
+    Required for the documented bootstrap sequence. envs/prod owns the account
+    globals, so echo-pong-gh-tf-apply IS in the admin list -- but the first two
+    applies are run from a HUMAN's credentials, not from CI, and that principal
+    gets nothing otherwise (`bootstrap_cluster_creator_admin_permissions` is
+    false in modules/eks). The symptom is the Argo CD helm_release failing with
+    a Forbidden error on the second apply.
+
+    Put the ARN of the role or user that runs the bootstrap applies here, plus
+    any break-glass operator role.
+  EOT
+  type        = list(string)
+  default     = []
+}
+
 variable "route53_zone_id" {
   description = "ID of the EXISTING Route 53 hosted zone. Never created by this stack."
   type        = string

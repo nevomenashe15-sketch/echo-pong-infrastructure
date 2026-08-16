@@ -95,14 +95,21 @@ data "aws_iam_policy_document" "karpenter_controller" {
     # Only nodes Karpenter itself provisioned. Without this condition the
     # controller could terminate the system node group and deadlock the
     # cluster, because Karpenter cannot reschedule the Karpenter pod.
+    # StringLike, NOT StringEquals: "*" here means "the tag exists with any
+    # value". Under StringEquals the "*" is compared as a LITERAL asterisk, so
+    # the condition would match no real instance and Karpenter would silently
+    # lose the ability to terminate its own nodes -- consolidation, drift
+    # remediation and expiry would all fail with AccessDenied. This mirrors the
+    # operator split in the upstream Karpenter AllowScopedDeletion statement.
     condition {
-      test     = "StringEquals"
+      test     = "StringLike"
       variable = "aws:ResourceTag/karpenter.sh/nodepool"
       values   = ["*"]
     }
 
+    # StringEquals, because "owned" is an exact value with no wildcard in it.
     condition {
-      test     = "StringLike"
+      test     = "StringEquals"
       variable = "aws:ResourceTag/kubernetes.io/cluster/${var.cluster_name}"
       values   = ["owned"]
     }

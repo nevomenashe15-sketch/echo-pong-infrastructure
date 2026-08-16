@@ -43,6 +43,25 @@ variable "cluster_public_access_cidrs" {
   type        = list(string)
 }
 
+variable "extra_cluster_admin_principal_arns" {
+  description = <<-EOT
+    IAM principal ARNs granted cluster-admin on this cluster via EKS access
+    entries, IN ADDITION to the terraform-apply role.
+
+    NOT OPTIONAL IN THIS ROOT MODULE. envs/dev does not own the account
+    globals, so the tf-apply role ARN is not available here and this list is
+    the ONLY source of cluster administrators. Leaving it empty produces a
+    cluster with zero admins: `bootstrap_cluster_creator_admin_permissions` is
+    false in modules/eks, so the identity that ran the apply gets nothing
+    either. The symptom is the Argo CD helm_release failing with a Forbidden
+    error, followed by kubectl being unusable by anyone.
+
+    Put the ARN of the role or user that runs `terraform apply` here.
+  EOT
+  type        = list(string)
+  default     = []
+}
+
 variable "route53_zone_id" {
   description = "ID of the EXISTING Route 53 hosted zone. Never created by this stack."
   type        = string

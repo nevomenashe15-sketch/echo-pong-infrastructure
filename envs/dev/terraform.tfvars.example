@@ -10,6 +10,14 @@ cluster_public_access_cidrs = [
   # "198.51.100.7/32", # CI runner NAT
 ]
 
+# REQUIRED. envs/dev has no tf-apply role of its own, so this is the ONLY source
+# of cluster administrators. Empty => a cluster nobody can administer and an
+# Argo CD install that fails with Forbidden. Put the applying principal here.
+extra_cluster_admin_principal_arns = [
+  # "arn:aws:iam::123456789012:role/echo-pong-gh-tf-apply",
+  # "arn:aws:iam::123456789012:role/PlatformEngineer",
+]
+
 route53_zone_id = "Z0123456789ABCDEFGHIJ" # EXISTING zone -- never created here
 domain_name     = "dev.echo-pong.example.com"
 

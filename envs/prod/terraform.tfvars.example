@@ -10,6 +10,12 @@ cluster_public_access_cidrs = [
   # "198.51.100.7/32", # CI runner NAT
 ]
 
+# REQUIRED for the bootstrap sequence: the first two applies run from a human's
+# credentials, and that principal is not otherwise a cluster admin.
+extra_cluster_admin_principal_arns = [
+  # "arn:aws:iam::123456789012:role/PlatformEngineer",
+]
+
 route53_zone_id = "Z0123456789ABCDEFGHIJ" # EXISTING zone -- never created here
 domain_name     = "echo-pong.example.com"
 

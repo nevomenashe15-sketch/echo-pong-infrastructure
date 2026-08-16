@@ -1,0 +1,114 @@
+# =============================================================================
+# Checkov configuration
+# =============================================================================
+# Run with:  checkov -d .
+#
+# EVERY entry in skip-check below is a DECISION, not a workaround, and each one
+# has a written justification in docs/future-extensions.md under
+# "Scanner findings deliberately left open". Read that table before adding to
+# this list -- and add the justification there in the same commit.
+#
+# Nothing here suppresses a finding because it was inconvenient. The categories
+# are: (a) scanner false positives, where the control IS present but not in the
+# shape the check looks for, and (b) documented trade-offs where the "fix" costs
+# more than the risk it removes.
+# =============================================================================
+
+directory:
+  - .
+
+skip-path:
+  - .terraform
+
+compact: true
+quiet: true
+
+skip-check:
+  # --- (a) False positives ---------------------------------------------------
+
+  # SG rule is `referenced_security_group_id` (control plane -> kubelet,
+  # 1025-65535), not a CIDR. There is no internet path to port 3389.
+  - CKV_AWS_25
+
+  # CloudFront logging uses standard logging v2 (aws_cloudwatch_log_delivery*),
+  # which checkov does not yet recognise. The legacy logging_config block is
+  # deliberately unused because it requires bucket ACLs, and the log bucket is
+  # BucketOwnerEnforced. See modules/cloudfront-waf/logging.tf.
+  - CKV_AWS_86
+
+  # AWSManagedRulesKnownBadInputsRuleSet IS attached and contains the JNDI /
+  # Log4Shell rules. Both checks look for a hand-written rule instead.
+  - CKV_AWS_192
+  - CKV2_AWS_47
+
+  # strict_transport_security IS set: access_control_max_age_sec = 63072000,
+  # include_subdomains = true. See modules/cloudfront-waf/policies.tf.
+  - CKV_AWS_259
+
+  # --- (b) Documented trade-offs ---------------------------------------------
+
+  # EKS public endpoint is enabled but CIDR-restricted, and modules/eks
+  # REJECTS 0.0.0.0/0 via variable validation. Turning it off means
+  # GitHub-hosted runners cannot reach the API and break-glass needs a bastion.
+  # docs/future-extensions.md -> "Private-only Kubernetes API endpoint".
+  - CKV_AWS_38
+  - CKV_AWS_39
+
+  # Log retention is 7/30/90 days by environment, not 1 year. Deliberate; see
+  # the dev-vs-prod table in docs/architecture.md.
+  - CKV_AWS_338
+
+  # WAF and CloudFront log groups/buckets use SSE-S3 and the default CloudWatch
+  # encryption rather than a CMK. Encrypting them requires granting the log
+  # delivery service kms:GenerateDataKey on a key that also protects the app
+  # token -- a worse trade than SSE-S3 on logs whose two sensitive headers are
+  # already redacted.
+  - CKV_AWS_145
+  - CKV_AWS_158
+
+  # No default_root_object: the origin serves the docs page at / itself.
+  # Setting it makes CloudFront rewrite / to /index.html, which the origin 404s.
+  - CKV_AWS_305
+
+  # No CloudFront origin failover: there is one origin (the app's ALB, itself
+  # multi-AZ). A second origin means a second region.
+  - CKV_AWS_310
+
+  # No geo restriction: the client population is not geographically bounded and
+  # a wrong geo block is an outage with no explanatory error.
+  - CKV_AWS_374
+
+  # No automatic secret rotation: echo-pong loads its secret ONCE at startup
+  # with no reload path, so rotating without restarting every pod breaks auth.
+  # Gated on an application change. docs/future-extensions.md.
+  - CKV2_AWS_57
+
+  # No S3 cross-region replication on the state / log buckets. Single region;
+  # state is versioned with 365-day noncurrent retention and prevent_destroy.
+  - CKV_AWS_144
+
+  # No S3 event notifications: nothing consumes object-created events on these
+  # buckets.
+  - CKV2_AWS_62
+
+  # No access logging on the CloudFront log bucket -- logging the log bucket is
+  # a recursive stream with no incident value. The STATE bucket, which is the
+  # sensitive one, does have access logging (bootstrap/main.tf).
+  - CKV_AWS_18
+
+  # bootstrap/ KMS key has no explicit key policy: at the time it is created no
+  # role ARN exists to name in one, so it relies on the default root-account
+  # policy plus IAM. modules/kms DOES write explicit policies.
+  - CKV2_AWS_64
+
+  # IAM Resource: "*" findings. Reviewed individually -- every instance is
+  # either an API that takes no resource ARN (sts:GetCallerIdentity,
+  # ecr:GetAuthorizationToken, ec2:Describe*), a KMS KEY POLICY where "*" means
+  # "this key", or a Deny statement where "*" is the strict form.
+  # Re-review these by hand whenever a policy in modules/iam-* changes.
+  - CKV_AWS_107
+  - CKV_AWS_108
+  - CKV_AWS_109
+  - CKV_AWS_110
+  - CKV_AWS_111
+  - CKV_AWS_356
