@@ -589,3 +589,16 @@ the two repository ARNs.
   the EC2 Auto Scaling service-linked role to hold a grant on it, which creates
   a dependency cycle between the `kms` and `eks` modules. The data at risk is a
   stateless node's root volume; the volume is still encrypted.
+- **Argo CD has no GitHub webhook — deploys land within `timeout.reconciliation`
+  (180s) of a merge to `echo-pong-gitops`, not instantly.** This is a direct
+  consequence of `modules/argocd-bootstrap` giving `argocd-server` no Ingress
+  at all (see `main.tf`'s own comment: an Ingress here would put the GitOps
+  control plane on the public internet). A GitHub webhook requires GitHub's
+  servers to reach Argo CD over a public URL, which this design has no path
+  for — adding one would mean deliberately punching a hole in that stance
+  (even a narrow one: a webhook-only Ingress path, IP-allowlisted to GitHub's
+  published ranges, HMAC-validated). Evaluated and explicitly deferred: a
+  ~3-minute worst-case lag for a dev environment is judged a better trade
+  than a public endpoint on the cluster's deployment control plane, even a
+  narrow one. Revisit if that lag ever becomes the actual bottleneck for a
+  real workflow, not preemptively.
