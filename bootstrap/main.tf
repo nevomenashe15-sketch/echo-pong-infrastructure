@@ -282,10 +282,17 @@ data "aws_iam_policy_document" "state" {
     }
   }
 
-  # Only rendered once the caller supplies the role ARNs. Applying this
-  # statement with empty lists would lock everyone out, so it is guarded.
+  # Only rendered once the caller supplies at least one role ARN, in EITHER
+  # list. Applying this statement with both lists empty would lock everyone
+  # out, so it is guarded -- but the guard must cover both lists: the
+  # ArnNotEquals condition below allow-lists both state_writer_principal_arns
+  # AND state_reader_principal_arns, so gating on only the writer list meant
+  # populating readers alone (a plausible partial rollout -- read access
+  # before write access) silently skipped rendering this statement entirely,
+  # leaving the bucket with no principal restriction at all despite
+  # terraform.tfvars looking correctly configured.
   dynamic "statement" {
-    for_each = length(var.state_writer_principal_arns) > 0 ? [1] : []
+    for_each = (length(var.state_writer_principal_arns) > 0 || length(var.state_reader_principal_arns) > 0) ? [1] : []
 
     content {
       sid       = "DenyNonApprovedPrincipals"

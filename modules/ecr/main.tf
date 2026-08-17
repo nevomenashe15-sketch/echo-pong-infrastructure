@@ -22,7 +22,9 @@
 #   docs/future-extensions.md as the path to take IF the estate ever splits
 #   into separate AWS accounts, where a single registry stops being free.
 #
-# These repositories are therefore instantiated exactly once, from envs/shared.
+# These repositories are therefore instantiated exactly once, from envs/prod
+# (gated on var.manage_account_globals -- see README.md "Account-global
+# singletons"). envs/dev never instantiates this module.
 # =============================================================================
 
 locals {

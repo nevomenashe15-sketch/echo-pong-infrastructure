@@ -81,10 +81,15 @@ resource "aws_eks_addon" "this" {
   configuration_values     = each.value.configuration_values
 
   # OVERWRITE: if a previous self-managed install left objects behind, adopt
-  # them rather than failing the apply. PRESERVE on delete so that removing the
-  # add-on from Terraform does not rip DNS out of a running cluster.
+  # them rather than failing the apply. preserve=true on delete so that
+  # removing the add-on from Terraform (e.g. dropping it from local.addons in
+  # a future refactor) does not delete the underlying DaemonSet/Deployment
+  # and rip DNS/networking out of a running cluster -- `terraform destroy`
+  # on this resource orphans the Kubernetes objects instead of tearing them
+  # down, which is the correct default for coredns/kube-proxy/vpc-cni.
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "OVERWRITE"
+  preserve                    = true
 
   tags = var.tags
 

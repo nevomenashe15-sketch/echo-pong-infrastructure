@@ -3,9 +3,10 @@ aws_region        = "eu-central-1"
 state_bucket_name = "echo-pong-tfstate-123456789012" # must be globally unique
 lock_table_name   = "echo-pong-tf-locks"
 
-# Leave these EMPTY on the first apply. After envs/shared has created the
-# GitHub OIDC roles, fill them in and re-apply bootstrap to tighten the
-# bucket policy. See README.md "Bootstrap ordering".
+# Leave these EMPTY on the first apply. After envs/prod has created the
+# GitHub OIDC roles (gated on manage_account_globals), fill them in and
+# re-apply bootstrap to tighten the bucket policy. See README.md
+# "Bootstrap ordering".
 state_reader_principal_arns = [
   # "arn:aws:iam::123456789012:role/echo-pong-gh-tf-plan",
 ]

@@ -26,7 +26,7 @@ variable "noncurrent_version_expiration_days" {
 }
 
 variable "state_reader_principal_arns" {
-  description = "IAM principal ARNs allowed read-only access to state (typically the terraform plan role). Left empty on the very first apply, then filled in once envs/shared has created the roles."
+  description = "IAM principal ARNs allowed read-only access to state (typically the terraform plan role). Left empty on the very first apply, then filled in once envs/prod (gated on var.manage_account_globals) has created the roles."
   type        = list(string)
   default     = []
 }

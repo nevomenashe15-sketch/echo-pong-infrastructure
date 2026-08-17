@@ -140,6 +140,19 @@ variable "ecr_pull_principal_arns" {
 variable "cloudfront_log_bucket_name" {
   description = "Globally unique S3 bucket name for CloudFront access logs."
   type        = string
+
+  # modules/iam-github-oidc's tf-apply bucket-management grants (Manage
+  # StackBuckets, AllowBucketPolicyOnOwnBucketsOnly) are hardcoded to
+  # arn:*:s3:::echo-pong-* -- a value that doesn't start with that prefix
+  # (plausible: bucket names must be globally unique, so a name like
+  # "myorg-echopong-cf-logs-<accountid>" is a realistic real-world pick)
+  # makes terraform apply under that role fail with AccessDenied on
+  # s3:CreateBucket/PutBucketPolicy for this bucket. Caught here instead of
+  # at apply time under the constrained role.
+  validation {
+    condition     = startswith(var.cloudfront_log_bucket_name, "echo-pong-")
+    error_message = "cloudfront_log_bucket_name must start with \"echo-pong-\" -- modules/iam-github-oidc scopes the tf-apply role's bucket-management permissions to arn:*:s3:::echo-pong-*, so any other prefix causes AccessDenied when Terraform tries to create/configure this bucket under that role."
+  }
 }
 
 variable "waf_rule_action_override" {

@@ -9,7 +9,7 @@ output "distribution_arn" {
 }
 
 output "distribution_domain_name" {
-  description = "dxxxx.cloudfront.net name. Feed this back into modules/route53-acm as cloudfront_domain_name to create the alias record."
+  description = "dxxxx.cloudfront.net name. Consumed directly by the root module's dns.tf (aws_route53_record.apex_a/apex_aaaa) to create the alias record -- NOT fed back into modules/route53-acm, which has no input for it. Keeping the alias record in the root module (not inside either module/route53-acm or module/cloudfront-waf) is what avoids a module-level cycle: route53-acm's cert is needed by cloudfront-waf, and cloudfront-waf's domain name is needed for the alias, so neither module can own the record without depending on the other."
   value       = aws_cloudfront_distribution.this.domain_name
 }
 

@@ -75,12 +75,17 @@ data "aws_iam_policy_document" "waf_log_delivery" {
 resource "aws_cloudwatch_log_resource_policy" "waf_cloudfront" {
   provider = aws.useast1
 
-  policy_name     = "${var.name_prefix}-waf-log-delivery"
+  # Distinct name (not just "-waf-log-delivery" shared with waf_regional
+  # below): CloudWatch Logs resource policies are scoped per account+region,
+  # not per log group, so if var.aws_region were ever us-east-1 (this stack
+  # already forces several other resources there), an identical name would
+  # collide -- two Terraform-managed resources representing one AWS object.
+  policy_name     = "${var.name_prefix}-waf-log-delivery-cloudfront"
   policy_document = data.aws_iam_policy_document.waf_log_delivery.json
 }
 
 resource "aws_cloudwatch_log_resource_policy" "waf_regional" {
-  policy_name     = "${var.name_prefix}-waf-log-delivery"
+  policy_name     = "${var.name_prefix}-waf-log-delivery-regional"
   policy_document = data.aws_iam_policy_document.waf_log_delivery.json
 }
 
